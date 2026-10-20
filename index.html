@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>Cronómetro por voz</title>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#182337;--text:#f3f6fc;--muted:#aab7cc;--accent:#68e0b4}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(circle at top,#233550,var(--bg) 58%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{width:min(100%,520px);text-align:center;background:rgba(24,35,55,.96);border:1px solid #34445d;border-radius:26px;padding:clamp(22px,5vw,36px);box-shadow:0 22px 70px #0005}
+h1{margin:0 0 8px;font-size:clamp(1.7rem,6vw,2.3rem)}.sub{color:var(--muted);margin:0 0 24px}
+.clock{font-variant-numeric:tabular-nums;font-weight:750;letter-spacing:-.045em;font-size:clamp(3.1rem,14vw,5.4rem);white-space:nowrap;margin:20px 0}
+.status{display:inline-flex;align-items:center;gap:8px;border-radius:99px;background:#26364e;color:var(--muted);padding:8px 13px;font-size:.9rem}
+.dot{width:9px;height:9px;border-radius:50%;background:#91a0b7}.status.running .dot{background:var(--accent);box-shadow:0 0 12px #68e0b477}.status.listening .dot{background:#ff7777}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:26px 0 18px}
+button{border:0;border-radius:14px;padding:15px 12px;font-size:1rem;font-weight:700;cursor:pointer}button:active{transform:scale(.98)}
+.primary{background:var(--accent);color:#10251f}.secondary{background:#2b3a52;color:var(--text)}.reset{grid-column:1/-1}
+.voice{width:100%;background:#304a69;color:white;padding:16px}.voice.on{background:#7e2f43}
+.heard{min-height:1.5em;color:var(--muted);margin:15px 0 4px;font-size:.95rem;overflow-wrap:anywhere}
+.commands{text-align:left;margin-top:24px;padding:16px;background:#111b2b;border-radius:15px;color:var(--muted);line-height:1.8;font-size:.93rem}.commands strong{color:var(--text)}
+.note{font-size:.82rem;color:var(--muted);line-height:1.5;margin:17px 0 0}
+@media(max-width:360px){.buttons{grid-template-columns:1fr}.reset{grid-column:auto}}
+</style>
+</head>
+<body>
+<main>
+<h1>⏱ Cronómetro por voz</h1>
+<p class="sub">Di el comando para controlar el tiempo.</p>
+<div id="status" class="status"><span class="dot"></span><span id="statusText">Listo para empezar</span></div>
+<div id="clock" class="clock" role="timer">00:00.00</div>
+<div class="buttons">
+<button id="start" class="primary">▶ Empezar</button>
+<button id="stop" class="secondary">⏸ Detener</button>
+<button id="reset" class="secondary reset">↺ Reiniciar</button>
+</div>
+<button id="voice" class="voice">🎙 Activar control por voz</button>
+<div id="heard" class="heard" aria-live="polite">El micrófono está apagado.</div>
+<div class="commands"><strong>Comandos disponibles:</strong><br>
+“Empezar cronómetro”<br>“Detener cronómetro”<br>“Reanudar cronómetro”<br>“Reiniciar cronómetro”</div>
+<p class="note">Al activar el control, se te preguntará si deseas usar el micrófono. Mantén abierta esta página y permite el acceso cuando Chrome lo solicite.</p>
+</main>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const clock=$('clock'), status=$('status'), statusText=$('statusText'), heard=$('heard'), voiceBtn=$('voice');
+let accumulated=0, startedAt=0, running=false, recognition=null, shouldListen=false, listening=false, restartTimer=null, languageIndex=0;
+const languages=['es-MX','es-ES'];
+function elapsed(){return accumulated+(running?performance.now()-startedAt:0)}
+function format(ms){const n=Math.floor(ms/10),m=Math.floor(n/6000),s=Math.floor(n%6000/100),c=n%100;return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(c).padStart(2,'0')}`}
+function paint(){clock.textContent=format(elapsed());requestAnimationFrame(paint)}
+function setStatus(t,mode=''){statusText.textContent=t;status.className='status'+(mode?' '+mode:'')}
+function start(){if(!running){startedAt=performance.now();running=true;setStatus(shouldListen?'En marcha · escuchando':'Cronómetro en marcha','running')}}
+function stop(){if(running){accumulated+=performance.now()-startedAt;running=false;setStatus(shouldListen?'Detenido · escuchando':'Cronómetro detenido',shouldListen?'listening':'')}}
+function reset(){running=false;accumulated=0;startedAt=0;setStatus(shouldListen?'En cero · escuchando':'Cronómetro en cero',shouldListen?'listening':'');heard.textContent='Cronómetro reiniciado.'}
+$('start').onclick=start;$('stop').onclick=stop;$('reset').onclick=reset;
+const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+function norm(s){return s.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[.,!?¿¡]/g,'').trim()}
+function command(text){
+const t=norm(text);heard.textContent=`Escuché: “${text}”`;
+if(/(empezar|iniciar|comenzar|arrancar|reanudar|continuar).*(cronometro|reloj|tiempo)?/.test(t)||/^(cronometro|reloj) (empezar|iniciar|reanudar|continuar)$/.test(t)){start();heard.textContent='Comando reconocido: empezar cronómetro.'}
+else if(/(detener|parar|pausar|frenar).*(cronometro|reloj|tiempo)?/.test(t)||/^(cronometro|reloj) (detener|parar|pausar)$/.test(t)){stop();heard.textContent='Comando reconocido: detener cronómetro.'}
+else if(/(reiniciar|resetear|poner en cero|volver a cero).*(cronometro|reloj|tiempo)?/.test(t)){reset();heard.textContent='Comando reconocido: reiniciar cronómetro.'}
+else heard.textContent=`No reconocí un comando. Escuché: “${text}”.`;
+}
+function buildRecognition(){
+const r=new SpeechRecognition();
+r.lang=languages[languageIndex]; r.continuous=false; r.interimResults=false; r.maxAlternatives=3;
+r.onstart=()=>{listening=true;voiceBtn.textContent='🔴 Desactivar control por voz';voiceBtn.classList.add('on');setStatus(running?'En marcha · escuchando':'Escuchando comandos',running?'running':'listening')};
+r.onresult=e=>{const result=e.results[e.results.length-1];if(result&&result.isFinal)command(result[0].transcript)};
+r.onerror=e=>{
+ if(e.error==='not-allowed'||e.error==='service-not-allowed'){shouldListen=false;heard.textContent='Chrome bloqueó el micrófono o el servicio de voz. Revisa los permisos del sitio.'}
+ else if(e.error==='network'){
+   if(languageIndex===0){languageIndex=1;heard.textContent='Error de red con es-MX. Probando reconocimiento en español de España…'}
+   else {shouldListen=false;heard.textContent='El servicio de reconocimiento devolvió “network” con ambos idiomas. Prueba actualizar Chrome, desactivar VPN/DNS privado o usar otro navegador compatible.'}
+ } else if(e.error==='no-speech'){heard.textContent='No detecté voz. Puedes volver a hablar.'}
+ else if(e.error==='audio-capture'){shouldListen=false;heard.textContent='No se pudo acceder al micrófono. Comprueba que Windows permita usarlo en Chrome.'}
+ else if(e.error!=='aborted'){heard.textContent=`Error de reconocimiento: ${e.error}.`}
+};
+r.onend=()=>{listening=false;if(shouldListen){clearTimeout(restartTimer);restartTimer=setTimeout(()=>{if(shouldListen){try{recognition=buildRecognition();recognition.start()}catch(err){heard.textContent='No pude reiniciar el reconocimiento. Pulsa el botón para intentarlo de nuevo.'}}},450)}else{voiceBtn.textContent='🎙 Activar control por voz';voiceBtn.classList.remove('on');setStatus(running?'Cronómetro en marcha':'Control por voz apagado',running?'running':'')}};
+return r;
+}
+voiceBtn.onclick=()=>{
+if(!SpeechRecognition){heard.textContent='Este navegador no admite reconocimiento de voz. Prueba Chrome actualizado.';return}
+if(shouldListen){shouldListen=false;clearTimeout(restartTimer);if(recognition){try{recognition.onend=null;recognition.stop()}catch(e){}}voiceBtn.textContent='🎙 Activar control por voz';voiceBtn.classList.remove('on');setStatus(running?'Cronómetro en marcha':'Control por voz apagado',running?'running':'');heard.textContent='Control por voz desactivado.';return}
+if(!confirm('¿Deseas activar el micrófono para controlar el cronómetro con tu voz?')){heard.textContent='No se activó el micrófono.';return}
+shouldListen=true;languageIndex=0;
+try{recognition=buildRecognition();recognition.start();heard.textContent='Solicitando reconocimiento de voz…'}catch(e){shouldListen=false;heard.textContent='No se pudo iniciar el reconocimiento. Comprueba permisos y vuelve a intentarlo.'}
+};
+paint();
+})();
+</script>
+</body>
+</html>
